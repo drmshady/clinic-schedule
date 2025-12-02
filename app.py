@@ -86,7 +86,7 @@ def create_split_pdf(df_am, df_pm, start_str, end_str, clinics):
         pdf_obj.cell(0, 5, f"Week: {start_str} to {end_str}", ln=True, align='C')
         pdf_obj.ln(5)
 
-        # Pivot with Aggregation
+        # Pivot with Aggregation (Join multiple doctors with comma)
         pivot = data_df.pivot_table(
             index=['SortDate', 'Day'], 
             columns='Clinic', 
@@ -94,11 +94,12 @@ def create_split_pdf(df_am, df_pm, start_str, end_str, clinics):
             aggfunc=lambda x: ', '.join(x)
         )
         
-        # Determine Columns
+        # Column Sorting Order
         cols = [str(c) for c in clinics]
         
-        # Columns Sorting: Clinics -> Supervision -> Sci -> Reserve -> Vacation
+        # We want Supervision to appear right after clinics
         supervision_col = ["Supervision"] if "Supervision" in pivot.columns else []
+        
         sci_cols = [c for c in pivot.columns if "Sci" in c]
         other_cols = [c for c in ["Floor/Reserve", "VACATION"] if c in pivot.columns]
         
@@ -140,7 +141,7 @@ def create_split_pdf(df_am, df_pm, start_str, end_str, clinics):
                      pdf_obj.cell(curr_w, cell_height, text, 1, 0, 'C')
                      pdf_obj.set_text_color(0, 0, 0)
                 elif "(Sup)" in text and col != "Supervision":
-                    # Bold Supervisors in regular clinics
+                    # If a Supervisor is working a Chair, bold them
                     pdf_obj.set_font("Arial", 'B', 8)
                     pdf_obj.cell(curr_w, cell_height, text, 1, 0, 'C')
                     pdf_obj.set_font("Arial", '', 8)
@@ -151,7 +152,6 @@ def create_split_pdf(df_am, df_pm, start_str, end_str, clinics):
             pdf_obj.ln()
 
     # --- DRAW TABLES ---
-    # REPLACED EMOJIS WITH PLAIN TEXT TO PREVENT ERRORS
     draw_table(pdf, df_am, "MORNING SHIFT SCHEDULE", (52, 73, 94))
     draw_table(pdf, df_pm, "EVENING SHIFT SCHEDULE", (80, 40, 90))
 
@@ -345,4 +345,4 @@ with tab3:
         
         pdf_file = create_split_pdf(df_am, df_pm, start_d.strftime("%Y-%m-%d"), end_d.strftime("%Y-%m-%d"), clinic_list)
         with open(pdf_file, "rb") as f:
-            st.download_button("📥 Download Official PDF (Split Tables)", f, "Dental_Schedule.pdf", "applicati
+            st.download_button("📥 Download Official PDF (Split Tables)", f, "Dental_Schedule.
