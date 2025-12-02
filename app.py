@@ -86,8 +86,7 @@ def create_split_pdf(df_am, df_pm, start_str, end_str, clinics):
         pdf_obj.cell(0, 5, f"Week: {start_str} to {end_str}", ln=True, align='C')
         pdf_obj.ln(5)
 
-        # FIX: Use pivot_table with aggregation to handle multiple doctors in Reserve/Sci Day
-        # Using comma separator for PDF to keep it on one line if possible
+        # Pivot with Aggregation
         pivot = data_df.pivot_table(
             index=['SortDate', 'Day'], 
             columns='Clinic', 
@@ -97,10 +96,13 @@ def create_split_pdf(df_am, df_pm, start_str, end_str, clinics):
         
         # Determine Columns
         cols = [str(c) for c in clinics]
+        
+        # Columns Sorting: Clinics -> Supervision -> Sci -> Reserve -> Vacation
+        supervision_col = ["Supervision"] if "Supervision" in pivot.columns else []
         sci_cols = [c for c in pivot.columns if "Sci" in c]
         other_cols = [c for c in ["Floor/Reserve", "VACATION"] if c in pivot.columns]
         
-        final_cols = [c for c in cols if c in pivot.columns] + sci_cols + other_cols
+        final_cols = [c for c in cols if c in pivot.columns] + supervision_col + sci_cols + other_cols
         pivot = pivot[final_cols].fillna("-")
         
         # Dimensions
@@ -114,7 +116,7 @@ def create_split_pdf(df_am, df_pm, start_str, end_str, clinics):
         
         pdf_obj.cell(w_day, 10, "Date", 1, 0, 'C', 1)
         for col in final_cols:
-            curr_w = 40 if "Sci" in col else w_clinic
+            curr_w = 40 if "Sci" in col or "Supervision" in col else w_clinic
             pdf_obj.cell(curr_w, 10, col, 1, 0, 'C', 1)
         pdf_obj.ln()
 
@@ -130,25 +132,28 @@ def create_split_pdf(df_am, df_pm, start_str, end_str, clinics):
             
             for col in final_cols:
                 text = str(row[col])
-                curr_w = 40 if "Sci" in col else w_clinic
+                curr_w = 40 if "Sci" in col or "Supervision" in col else w_clinic
                 
+                # Visual Handling
                 if "OFF" in text or col == "VACATION":
                      pdf_obj.set_text_color(150, 150, 150)
                      pdf_obj.cell(curr_w, cell_height, text, 1, 0, 'C')
                      pdf_obj.set_text_color(0, 0, 0)
-                elif "(Sup)" in text:
+                elif "(Sup)" in text and col != "Supervision":
+                    # Bold Supervisors in regular clinics
                     pdf_obj.set_font("Arial", 'B', 8)
                     pdf_obj.cell(curr_w, cell_height, text, 1, 0, 'C')
                     pdf_obj.set_font("Arial", '', 8)
                 else:
-                    # Truncate text if too long for PDF cell
+                    # Truncate if very long
                     if len(text) > 25: text = text[:23] + ".."
                     pdf_obj.cell(curr_w, cell_height, text, 1, 0, 'C')
             pdf_obj.ln()
 
     # --- DRAW TABLES ---
-    draw_table(pdf, df_am, "☀️ Morning Shift Schedule", (52, 73, 94))
-    draw_table(pdf, df_pm, "🌙 Evening Shift Schedule", (80, 40, 90))
+    # REPLACED EMOJIS WITH PLAIN TEXT TO PREVENT ERRORS
+    draw_table(pdf, df_am, "MORNING SHIFT SCHEDULE", (52, 73, 94))
+    draw_table(pdf, df_pm, "EVENING SHIFT SCHEDULE", (80, 40, 90))
 
     output_pdf = "Dental_Schedule_Split.pdf"
     pdf.output(output_pdf)
@@ -221,17 +226,12 @@ st.markdown("---")
 tab1, tab2, tab3 = st.tabs(["👥 Team & Scientific Day", "🏥 Clinics", "🚀 Generate"])
 
 with tab1:
-    st.info("💡 **Scientific Day:** Select 'Session 1', 'Session 2', or 'Both' for Sunday AM.")
+    st.info("💡 **Roles:** Supervisors ('Sup?') will be assigned to 'Supervision' column unless clinics need coverage.")
     edited_docs_df = st.data_editor(
         df_docs, num_rows="dynamic", use_container_width=True,
         column_config={
             "Supervisor": st.column_config.CheckboxColumn("Sup?", width="small"),
-            "Sun_Session": st.column_config.SelectboxColumn(
-                "Sunday Sci. Day", 
-                options=["None", "Session 1", "Session 2", "Both"],
-                required=True,
-                width="medium"
-            ),
+            "Sun_Session": st.column_config.SelectboxColumn("Sun Sci. Day", options=["None", "Session 1", "Session 2", "Both"], required=True, width="medium"),
             "Shift_Pref": st.column_config.SelectboxColumn("Shift", options=["Day", "Night", "Both"], width="small"),
         }
     )
@@ -269,39 +269,62 @@ with tab3:
             display_date = f"{day_name}\n{date_str}"
             
             def process_shift(team, shift_label):
-                available = []
+                # A. Handle Vacations
+                active_team = []
                 for doc in team:
                     if is_on_vacation(doc, day_name):
                         schedule_rows.append({"Day": display_date, "SortDate": date_str, "Shift": shift_label, "Clinic": "VACATION", "Doctor": f"{doc['Name']} (OFF)"})
-                    else: available.append(doc)
+                    else: active_team.append(doc)
                 
-                random.shuffle(available)
-                available.sort(key=lambda x: workload_tracker[x['Name']])
-                
-                assigned_count = 0
-                for doc in available:
+                # B. Handle Scientific Day (Priority 1)
+                available_for_work = []
+                for doc in active_team:
                     sun_pref = doc.get("Sun_Session", "None")
                     is_res = "Res" in str(doc.get("Title", ""))
                     if is_res and (sun_pref == "None" or pd.isna(sun_pref)): sun_pref = "Both"
-                    
+
                     if shift_label == "AM" and day_name == "Sunday" and sun_pref != "None":
-                        loc = f"Sci: {sun_pref}"
+                        schedule_rows.append({"Day": display_date, "SortDate": date_str, "Shift": shift_label, "Clinic": f"Sci: {sun_pref}", "Doctor": f"{doc['Name']} ({doc['Title']})"})
                     else:
-                        if assigned_count < len(clinic_list):
-                            loc = str(clinic_list[assigned_count])
-                            assigned_count += 1
-                            workload_tracker[doc['Name']] += 1
-                        else:
-                            loc = "Floor/Reserve"
-                            workload_tracker[doc['Name']] += 1
-                            
-                    sup_lbl = " (Sup)" if doc.get("Supervisor") == True else ""
-                    schedule_rows.append({"Day": display_date, "SortDate": date_str, "Shift": shift_label, "Clinic": loc, "Doctor": f"{doc['Name']} ({doc['Title']}){sup_lbl}"})
+                        available_for_work.append(doc)
+
+                # C. Split into Workers (Residents) and Supervisors
+                random.shuffle(available_for_work)
+                available_for_work.sort(key=lambda x: workload_tracker[x['Name']]) # Fair distribution
+                
+                residents_q = [d for d in available_for_work if d.get('Supervisor') == False]
+                supervisors_q = [d for d in available_for_work if d.get('Supervisor') == True]
+                
+                # D. Fill Clinics (Priority: Residents -> then Supervisors if needed)
+                for clinic_num in clinic_list:
+                    assigned_doc = None
+                    
+                    if residents_q:
+                        assigned_doc = residents_q.pop(0)
+                    elif supervisors_q:
+                        assigned_doc = supervisors_q.pop(0) # Sup steps in to fill chair
+                    
+                    if assigned_doc:
+                        sup_tag = " (Sup)" if assigned_doc.get('Supervisor') else ""
+                        schedule_rows.append({"Day": display_date, "SortDate": date_str, "Shift": shift_label, "Clinic": str(clinic_num), "Doctor": f"{assigned_doc['Name']} ({assigned_doc['Title']}){sup_tag}"})
+                        workload_tracker[assigned_doc['Name']] += 1
+                    else:
+                        pass # Empty clinic
+                
+                # E. Assign Remaining Supervisors to 'Supervision'
+                for doc in supervisors_q:
+                    schedule_rows.append({"Day": display_date, "SortDate": date_str, "Shift": shift_label, "Clinic": "Supervision", "Doctor": f"{doc['Name']} ({doc['Title']})"})
+                    workload_tracker[doc['Name']] += 1
+
+                # F. Assign Remaining Residents to 'Floor/Reserve'
+                for doc in residents_q:
+                     schedule_rows.append({"Day": display_date, "SortDate": date_str, "Shift": shift_label, "Clinic": "Floor/Reserve", "Doctor": f"{doc['Name']} ({doc['Title']})"})
+                     workload_tracker[doc['Name']] += 1
 
             process_shift(day_team, "AM")
             process_shift(night_team, "PM")
 
-        # 4. DISPLAY RESULTS
+        # 4. DISPLAY
         final_df = pd.DataFrame(schedule_rows)
         df_am = final_df[final_df['Shift'] == 'AM']
         df_pm = final_df[final_df['Shift'] == 'PM']
@@ -310,17 +333,16 @@ with tab3:
         
         res_tab1, res_tab2 = st.tabs(["☀️ Morning Roster", "🌙 Evening Roster"])
         
-        # FIX: Using pivot_table with aggfunc to separate multiple doctors in one cell with newlines
         with res_tab1:
-            st.subheader("Morning Shift (8 AM - 4 PM)")
+            st.subheader("Morning Shift")
             pivot_am = df_am.pivot_table(index=['SortDate', 'Day'], columns='Clinic', values='Doctor', aggfunc=lambda x: '\n'.join(x))
             st.dataframe(pivot_am, use_container_width=True)
             
         with res_tab2:
-            st.subheader("Evening Shift (4 PM - 12 AM)")
+            st.subheader("Evening Shift")
             pivot_pm = df_pm.pivot_table(index=['SortDate', 'Day'], columns='Clinic', values='Doctor', aggfunc=lambda x: '\n'.join(x))
             st.dataframe(pivot_pm, use_container_width=True)
         
         pdf_file = create_split_pdf(df_am, df_pm, start_d.strftime("%Y-%m-%d"), end_d.strftime("%Y-%m-%d"), clinic_list)
         with open(pdf_file, "rb") as f:
-            st.download_button("📥 Download Official PDF (Split Tables)", f, "Dental_Schedule.pdf", "application/pdf")
+            st.download_button("📥 Download Official PDF (Split Tables)", f, "Dental_Schedule.pdf", "applicati
