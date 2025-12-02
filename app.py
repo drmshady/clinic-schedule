@@ -31,7 +31,7 @@ st.markdown("""
 def get_empty_template():
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        pd.DataFrame(columns=["Name", "Title", "Shift_Pref", "Supervisor", "Sun_Session", "Vacation_Start", "Vacation_End"]).to_excel(writer, sheet_name="Doctors", index=False)
+        pd.DataFrame(columns=["Name", "Title", "Shift_Pref", "Supervisor", "Supervise_Clinic", "Sun_Session", "Vacation_Start", "Vacation_End"]).to_excel(writer, sheet_name="Doctors", index=False)
         pd.DataFrame(columns=["Clinic_Number"]).to_excel(writer, sheet_name="Clinics", index=False)
     return buffer
 
@@ -39,23 +39,24 @@ def generate_dates(start_date, end_date):
     date_list = []
     current = start_date
     while current <= end_date:
-        # EXCLUDE FRIDAY AND SATURDAY
         if current.strftime("%A") not in ["Friday", "Saturday"]:
             date_list.append(current)
         current += timedelta(days=1)
     return date_list
 
-def is_on_vacation(doc, current_day_name):
-    DAY_INDEX = {"Sunday": 0, "Monday": 1, "Tuesday": 2, "Wednesday": 3, "Thursday": 4, "Friday": 5}
+def is_on_vacation(doc, current_date):
+    """Checks if the doctor is on vacation based on calendar dates."""
     v_start = doc.get("Vacation_Start")
     v_end = doc.get("Vacation_End")
-    if pd.isna(v_start) or pd.isna(v_end) or v_start is None: return False
     
-    start_idx = DAY_INDEX.get(v_start, -1)
-    end_idx = DAY_INDEX.get(v_end, -1)
-    curr_idx = DAY_INDEX.get(current_day_name, -1)
+    if pd.isna(v_start) or v_start is None: return False
     
-    if start_idx != -1 and start_idx <= curr_idx <= end_idx: return True
+    # Ensure date objects are compared against date objects
+    start_date = pd.to_datetime(v_start).date()
+    end_date = pd.to_datetime(v_end).date()
+    
+    if start_date <= current_date.date() <= end_date:
+        return True
     return False
 
 def create_split_pdf(df_am, df_pm, start_str, end_str, clinics):
@@ -75,7 +76,7 @@ def create_split_pdf(df_am, df_pm, start_str, end_str, clinics):
             index=['SortDate', 'Day'], 
             columns='Clinic', 
             values='Doctor', 
-            aggfunc=lambda x: ', '.join(x)
+            aggfunc=lambda x: '\n'.join(x) # Use newline for better readability of pairs
         )
         
         # Sort Columns
@@ -108,7 +109,9 @@ def create_split_pdf(df_am, df_pm, start_str, end_str, clinics):
             pdf_obj.cell(w_day, 10, str(row['Day']), 1, 0, 'C')
             for col in final_cols:
                 text = str(row[col])
-                display_text = (text[:20] + '..') if len(text) > 22 else text
+                display_text = text.replace('\n', ' | ') # Replace newline with separator for single-line PDF cell
+                
+                if len(display_text) > 22: display_text = display_text[:20] + '..'
                 
                 if "OFF" in text or col == "VACATION":
                     pdf_obj.set_text_color(150, 150, 150)
@@ -133,27 +136,28 @@ def create_split_pdf(df_am, df_pm, start_str, end_str, clinics):
 st.sidebar.title("⚙️ Setup")
 uploaded_file = st.sidebar.file_uploader("Upload Excel", type=["xlsx"])
 
+# --- Pre-loaded Data (Initial state for the app) ---
 if not uploaded_file:
     preloaded_doctors = [
-        {"Name": "Dr. Amjad", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both"},
-        {"Name": "Dr. M Atef", "Title": "Cons", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
-        {"Name": "Dr. M Shady", "Title": "Cons", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
-        {"Name": "Dr. Moatez", "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
-        {"Name": "Dr. M Sandokji", "Title": "Cons", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
-        {"Name": "Dr. Abeer", "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
-        {"Name": "Dr. Ziad", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both"},
-        {"Name": "Dr. Sara", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both"},
-        {"Name": "Dr. Ahmed E.", "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
-        {"Name": "Dr. Nesam", "Title": "Cons", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
-        {"Name": "Dr. Ohood", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both"},
-        {"Name": "Dr. Hanin", "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
-        {"Name": "Dr. Asayel", "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
-        {"Name": "Dr. Abdullah", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both"},
-        {"Name": "Dr. Hind", "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
-        {"Name": "Dr. Bassam", "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
-        {"Name": "Dr. Tariq", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both"},
-        {"Name": "Dr. Faisel", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both"},
-        {"Name": "Dr. Roqaya", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both"},
+        {"Name": "Dr. Amjad", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both", "Supervise_Clinic": None},
+        {"Name": "Dr. M Atef", "Title": "Cons", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None", "Supervise_Clinic": 8}, # Assigned to Clinic 8
+        {"Name": "Dr. M Shady", "Title": "Cons", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None", "Supervise_Clinic": None}, 
+        {"Name": "Dr. Moatez", "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None", "Supervise_Clinic": None}, 
+        {"Name": "Dr. M Sandokji", "Title": "Cons", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None", "Supervise_Clinic": 9}, # Assigned to Clinic 9
+        {"Name": "Dr. Abeer", "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None", "Supervise_Clinic": None},
+        {"Name": "Dr. Ziad", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both", "Supervise_Clinic": None},
+        {"Name": "Dr. Sara", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both", "Supervise_Clinic": None},
+        {"Name": "Dr. Ahmed E.", "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None", "Supervise_Clinic": None},
+        {"Name": "Dr. Nesam", "Title": "Cons", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None", "Supervise_Clinic": None},
+        {"Name": "Dr. Ohood", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both", "Supervise_Clinic": None},
+        {"Name": "Dr. Hanin", "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None", "Supervise_Clinic": None},
+        {"Name": "Dr. Asayel", "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None", "Supervise_Clinic": None},
+        {"Name": "Dr. Abdullah", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both", "Supervise_Clinic": None},
+        {"Name": "Dr. Hind", "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None", "Supervise_Clinic": None},
+        {"Name": "Dr. Bassam", "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None", "Supervise_Clinic": None},
+        {"Name": "Dr. Tariq", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both", "Supervise_Clinic": None},
+        {"Name": "Dr. Faisel", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both", "Supervise_Clinic": None},
+        {"Name": "Dr. Roqaya", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both", "Supervise_Clinic": None},
     ]
     for d in preloaded_doctors:
         d["Supervisor"] = d.pop("Sup")
@@ -176,27 +180,19 @@ st.title("🦷 Dental Roster Pro")
 tab1, tab2, tab3 = st.tabs(["👥 Team Settings", "🏥 Clinics", "🚀 Generate"])
 
 with tab1:
-    st.info("💡 **Instructions:** Use the Dropdowns below to set **Shift Preference** and **Sunday Status**.")
-    # UPDATED COLUMN CONFIG WITH DROPDOWNS
+    st.info("💡 To assign a Supervisor to a specific clinic, enter the **Clinic Number** (8, 9, 10, or 15) in the **Supervise_Clinic** column.")
+    # UPDATED COLUMN CONFIG WITH DROPDOWNS & DATE PICKERS
     edited_docs_df = st.data_editor(
         df_docs, 
         num_rows="dynamic", 
         use_container_width=True,
         column_config={
             "Supervisor": st.column_config.CheckboxColumn("Supervisor?", width="small"),
-            "Shift_Pref": st.column_config.SelectboxColumn(
-                "Shift Preference", 
-                options=["Day", "Night", "Both"], 
-                width="medium",
-                required=True
-            ),
-            "Sun_Session": st.column_config.SelectboxColumn(
-                "Sunday Status", 
-                options=["None", "Session 1", "Session 2", "Both"], 
-                width="medium",
-                required=True,
-                help="Select 'None' if available for work, or a Session if attending Scientific Day."
-            ),
+            "Supervise_Clinic": st.column_config.NumberColumn("Supervise_Clinic", width="small", min_value=8, max_value=15, step=1, help="Specific clinic to supervise, e.g., 15"),
+            "Shift_Pref": st.column_config.SelectboxColumn("Shift Preference", options=["Day", "Night", "Both"], width="medium", required=True),
+            "Sun_Session": st.column_config.SelectboxColumn("Sunday Status", options=["None", "Session 1", "Session 2", "Both"], width="medium", required=True),
+            "Vacation_Start": st.column_config.DateColumn("Vacation_Start", format="YYYY-MM-DD", help="Start date of vacation block"),
+            "Vacation_End": st.column_config.DateColumn("Vacation_End", format="YYYY-MM-DD", help="End date of vacation block"),
             "Title": st.column_config.TextColumn("Role", disabled=True),
         }
     )
@@ -222,9 +218,10 @@ with tab3:
             display_date = f"{day_name}\n{date_str}"
 
             for shift_label in ["AM", "PM"]:
-                # Logic: No Fridays (Generated dates already exclude Fri/Sat)
                 current_team = day_team if shift_label == "AM" else night_team
-                active_team = [doc for doc in current_team if not is_on_vacation(doc, day_name)]
+                
+                # Filter out those on vacation
+                active_team = [doc for doc in current_team if not is_on_vacation(doc, d)]
                 
                 available_for_clinic = []
                 for doc in active_team:
@@ -237,32 +234,66 @@ with tab3:
                     else:
                         available_for_clinic.append(doc)
 
+                # Sort for fairness before processing
                 random.shuffle(available_for_clinic)
                 available_for_clinic.sort(key=lambda x: workload_tracker[x['Name']])
 
+                # Separate Roles
                 residents_q = [d for d in available_for_clinic if not d.get('Supervisor')]
                 supervisors_q = [d for d in available_for_clinic if d.get('Supervisor')]
-
-                # 1. Fill Clinics
-                for clinic in clinic_list:
-                    assigned = None
-                    if residents_q:
-                        assigned = residents_q.pop(0)
-                    elif supervisors_q:
-                        assigned = supervisors_q.pop(0)
+                
+                # Track clinics that need to be filled by the general pool
+                unassigned_clinics = set(clinic_list)
+                
+                # --- PRIORITY 1: PAIRED SUPERVISION ---
+                for clinic_num in clinic_list:
+                    clinic_str = str(clinic_num)
                     
-                    if assigned:
-                        sup_tag = " (Sup)" if assigned.get('Supervisor') else ""
-                        schedule_rows.append({"Day": display_date, "SortDate": date_str, "Shift": shift_label, "Clinic": str(clinic), "Doctor": f"{assigned['Name']}{sup_tag}"})
-                        workload_tracker[assigned['Name']] += 1
+                    # Find dedicated Supervisor for this clinic
+                    dedicated_sup_list = [d for d in supervisors_q if str(d.get('Supervise_Clinic', '')) == clinic_str]
+                    
+                    if dedicated_sup_list and residents_q:
+                        # 1. Take a Resident (Worker)
+                        worker = residents_q.pop(0)
+                        # 2. Take the Dedicated Supervisor
+                        supervisor = dedicated_sup_list.pop(0)
+                        supervisors_q.remove(supervisor) # Remove from general sup pool
+                        
+                        # 3. Assign PAIR to the clinic
+                        pair_label = f"{worker['Name']} | {supervisor['Name']} (Sup)"
+                        schedule_rows.append({"Day": display_date, "SortDate": date_str, "Shift": shift_label, "Clinic": clinic_str, "Doctor": pair_label})
+                        workload_tracker[worker['Name']] += 1
+                        workload_tracker[supervisor['Name']] += 1
+                        unassigned_clinics.remove(clinic_num)
 
-                # 2. Assign Remaining Supervisors to 'Supervision'
-                for doc in supervisors_q:
+                # --- PRIORITY 2: FILL REMAINING CLINICS ---
+                
+                # Create a temporary pool of remaining supervisors/residents for general fill
+                general_pool = residents_q + supervisors_q
+                random.shuffle(general_pool)
+                
+                # Fill remaining clinics with the general pool
+                for clinic_num in list(unassigned_clinics):
+                    clinic_str = str(clinic_num)
+                    if general_pool:
+                        assigned = general_pool.pop(0)
+                        sup_tag = " (Sup)" if assigned.get('Supervisor') else ""
+                        schedule_rows.append({"Day": display_date, "SortDate": date_str, "Shift": shift_label, "Clinic": clinic_str, "Doctor": f"{assigned['Name']}{sup_tag}"})
+                        workload_tracker[assigned['Name']] += 1
+                        
+                # --- PRIORITY 3: RESERVE / SUPERVISION ---
+                
+                # Recalculate remaining supervisors (who are now in general_pool)
+                remaining_supervisors = [d for d in general_pool if d.get('Supervisor')]
+                remaining_residents = [d for d in general_pool if not d.get('Supervisor')]
+                
+                # Assign Remaining Supervisors to 'Supervision'
+                for doc in remaining_supervisors:
                     schedule_rows.append({"Day": display_date, "SortDate": date_str, "Shift": shift_label, "Clinic": "Supervision", "Doctor": f"{doc['Name']}"})
                     workload_tracker[doc['Name']] += 1
                 
-                # 3. Assign Remaining Residents to 'Reserve'
-                for doc in residents_q:
+                # Assign Remaining Residents to 'Reserve'
+                for doc in remaining_residents:
                     schedule_rows.append({"Day": display_date, "SortDate": date_str, "Shift": shift_label, "Clinic": "Floor/Reserve", "Doctor": f"{doc['Name']}"})
                     workload_tracker[doc['Name']] += 1
 
@@ -277,9 +308,9 @@ with tab3:
             
             t1, t2 = st.tabs(["☀️ Day Schedule", "🌙 Night Schedule"])
             with t1:
-                st.dataframe(df_am.pivot_table(index=['SortDate', 'Day'], columns='Clinic', values='Doctor', aggfunc=lambda x: ', '.join(x)), use_container_width=True)
+                st.dataframe(df_am.pivot_table(index=['SortDate', 'Day'], columns='Clinic', values='Doctor', aggfunc=lambda x: '\n'.join(x)), use_container_width=True)
             with t2:
-                st.dataframe(df_pm.pivot_table(index=['SortDate', 'Day'], columns='Clinic', values='Doctor', aggfunc=lambda x: ', '.join(x)), use_container_width=True)
+                st.dataframe(df_pm.pivot_table(index=['SortDate', 'Day'], columns='Clinic', values='Doctor', aggfunc=lambda x: '\n'.join(x)), use_container_width=True)
 
             pdf_path = create_split_pdf(df_am, df_pm, start_d.strftime("%Y-%m-%d"), end_d.strftime("%Y-%m-%d"), clinic_list)
             with open(pdf_path, "rb") as f:
