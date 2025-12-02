@@ -13,6 +13,7 @@ st.set_page_config(page_title="Dental Roster Pro", page_icon="🦷", layout="wid
 st.markdown("""
     <style>
     .block-container { padding-top: 1rem; padding-bottom: 5rem; }
+    h1 { font-size: 1.8rem; color: #2c3e50; }
     .stButton>button { 
         height: 3.5em; 
         border-radius: 10px; 
@@ -39,6 +40,7 @@ def generate_dates(start_date, end_date):
     date_list = []
     current = start_date
     while current <= end_date:
+        # EXCLUDE FRIDAY AND SATURDAY
         if current.strftime("%A") not in ["Friday", "Saturday"]:
             date_list.append(current)
         current += timedelta(days=1)
@@ -76,7 +78,7 @@ def create_split_pdf(df_am, df_pm, start_str, end_str, clinics):
             index=['SortDate', 'Day'], 
             columns='Clinic', 
             values='Doctor', 
-            aggfunc=lambda x: '\n'.join(x) # Use newline for better readability of pairs
+            aggfunc=lambda x: '\n'.join(x)
         )
         
         # Sort Columns
@@ -109,7 +111,7 @@ def create_split_pdf(df_am, df_pm, start_str, end_str, clinics):
             pdf_obj.cell(w_day, 10, str(row['Day']), 1, 0, 'C')
             for col in final_cols:
                 text = str(row[col])
-                display_text = text.replace('\n', ' | ') # Replace newline with separator for single-line PDF cell
+                display_text = text.replace('\n', ' | ')
                 
                 if len(display_text) > 22: display_text = display_text[:20] + '..'
                 
@@ -140,10 +142,10 @@ uploaded_file = st.sidebar.file_uploader("Upload Excel", type=["xlsx"])
 if not uploaded_file:
     preloaded_doctors = [
         {"Name": "Dr. Amjad", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both", "Supervise_Clinic": None},
-        {"Name": "Dr. M Atef", "Title": "Cons", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None", "Supervise_Clinic": 8}, # Assigned to Clinic 8
+        {"Name": "Dr. M Atef", "Title": "Cons", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None", "Supervise_Clinic": 8},
         {"Name": "Dr. M Shady", "Title": "Cons", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None", "Supervise_Clinic": None}, 
         {"Name": "Dr. Moatez", "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None", "Supervise_Clinic": None}, 
-        {"Name": "Dr. M Sandokji", "Title": "Cons", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None", "Supervise_Clinic": 9}, # Assigned to Clinic 9
+        {"Name": "Dr. M Sandokji", "Title": "Cons", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None", "Supervise_Clinic": 9},
         {"Name": "Dr. Abeer", "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None", "Supervise_Clinic": None},
         {"Name": "Dr. Ziad", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both", "Supervise_Clinic": None},
         {"Name": "Dr. Sara", "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both", "Supervise_Clinic": None},
@@ -181,6 +183,7 @@ tab1, tab2, tab3 = st.tabs(["👥 Team Settings", "🏥 Clinics", "🚀 Generate
 
 with tab1:
     st.info("💡 To assign a Supervisor to a specific clinic, enter the **Clinic Number** (8, 9, 10, or 15) in the **Supervise_Clinic** column.")
+    
     # UPDATED COLUMN CONFIG WITH DROPDOWNS & DATE PICKERS
     edited_docs_df = st.data_editor(
         df_docs, 
@@ -249,26 +252,25 @@ with tab3:
                 for clinic_num in clinic_list:
                     clinic_str = str(clinic_num)
                     
-                    # Find dedicated Supervisor for this clinic
-                    dedicated_sup_list = [d for d in supervisors_q if str(d.get('Supervise_Clinic', '')) == clinic_str]
+                    # Find and remove Supervisor from general pool who matches this clinic
+                    dedicated_sup = next((d for d in supervisors_q if str(d.get('Supervise_Clinic', '')) == clinic_str), None)
                     
-                    if dedicated_sup_list and residents_q:
+                    if dedicated_sup and residents_q:
                         # 1. Take a Resident (Worker)
                         worker = residents_q.pop(0)
                         # 2. Take the Dedicated Supervisor
-                        supervisor = dedicated_sup_list.pop(0)
-                        supervisors_q.remove(supervisor) # Remove from general sup pool
+                        supervisors_q.remove(dedicated_sup) 
                         
                         # 3. Assign PAIR to the clinic
-                        pair_label = f"{worker['Name']} | {supervisor['Name']} (Sup)"
+                        pair_label = f"{worker['Name']} | {dedicated_sup['Name']} (Sup)"
                         schedule_rows.append({"Day": display_date, "SortDate": date_str, "Shift": shift_label, "Clinic": clinic_str, "Doctor": pair_label})
                         workload_tracker[worker['Name']] += 1
-                        workload_tracker[supervisor['Name']] += 1
+                        workload_tracker[dedicated_sup['Name']] += 1
                         unassigned_clinics.remove(clinic_num)
 
                 # --- PRIORITY 2: FILL REMAINING CLINICS ---
                 
-                # Create a temporary pool of remaining supervisors/residents for general fill
+                # Combine remaining supervisors/residents for general fill
                 general_pool = residents_q + supervisors_q
                 random.shuffle(general_pool)
                 
@@ -283,7 +285,7 @@ with tab3:
                         
                 # --- PRIORITY 3: RESERVE / SUPERVISION ---
                 
-                # Recalculate remaining supervisors (who are now in general_pool)
+                # Recalculate remaining supervisors/residents (who are now in general_pool)
                 remaining_supervisors = [d for d in general_pool if d.get('Supervisor')]
                 remaining_residents = [d for d in general_pool if not d.get('Supervisor')]
                 
@@ -292,7 +294,7 @@ with tab3:
                     schedule_rows.append({"Day": display_date, "SortDate": date_str, "Shift": shift_label, "Clinic": "Supervision", "Doctor": f"{doc['Name']}"})
                     workload_tracker[doc['Name']] += 1
                 
-                # Assign Remaining Residents to 'Reserve'
+                # Assign Remaining Residents to 'Floor/Reserve'
                 for doc in remaining_residents:
                     schedule_rows.append({"Day": display_date, "SortDate": date_str, "Shift": shift_label, "Clinic": "Floor/Reserve", "Doctor": f"{doc['Name']}"})
                     workload_tracker[doc['Name']] += 1
