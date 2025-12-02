@@ -345,4 +345,4 @@ with tab3:
         
         pdf_file = create_split_pdf(df_am, df_pm, start_d.strftime("%Y-%m-%d"), end_d.strftime("%Y-%m-%d"), clinic_list)
         with open(pdf_file, "rb") as f:
-            st.download_button("📥 Download Official PDF (Split Tables)", f, "Dental_Schedule.
+            st.download_button("📥 Download Official PDF (Split Tables)", f, "Dental_Schedule.pdf", "application/pdf")
