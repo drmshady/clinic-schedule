@@ -46,7 +46,6 @@ def generate_dates(start_date, end_date):
     return date_list
 
 def is_on_vacation(doc, current_day_name):
-    # Friday is no longer needed in index, but keeping it won't break anything
     DAY_INDEX = {"Sunday": 0, "Monday": 1, "Tuesday": 2, "Wednesday": 3, "Thursday": 4, "Friday": 5}
     v_start = doc.get("Vacation_Start")
     v_end = doc.get("Vacation_End")
@@ -174,11 +173,33 @@ end_d = st.sidebar.date_input("End Date", datetime.today() + timedelta(days=6))
 
 st.title("🦷 Dental Roster Pro")
 
-tab1, tab2, tab3 = st.tabs(["👥 Team", "🏥 Clinics", "🚀 Generate"])
+tab1, tab2, tab3 = st.tabs(["👥 Team Settings", "🏥 Clinics", "🚀 Generate"])
 
 with tab1:
-    st.info("💡 Edit Vacations and Scientific Day preferences here.")
-    edited_docs_df = st.data_editor(df_docs, num_rows="dynamic", use_container_width=True)
+    st.info("💡 **Instructions:** Use the Dropdowns below to set **Shift Preference** and **Sunday Status**.")
+    # UPDATED COLUMN CONFIG WITH DROPDOWNS
+    edited_docs_df = st.data_editor(
+        df_docs, 
+        num_rows="dynamic", 
+        use_container_width=True,
+        column_config={
+            "Supervisor": st.column_config.CheckboxColumn("Supervisor?", width="small"),
+            "Shift_Pref": st.column_config.SelectboxColumn(
+                "Shift Preference", 
+                options=["Day", "Night", "Both"], 
+                width="medium",
+                required=True
+            ),
+            "Sun_Session": st.column_config.SelectboxColumn(
+                "Sunday Status", 
+                options=["None", "Session 1", "Session 2", "Both"], 
+                width="medium",
+                required=True,
+                help="Select 'None' if available for work, or a Session if attending Scientific Day."
+            ),
+            "Title": st.column_config.TextColumn("Role", disabled=True),
+        }
+    )
 
 with tab2:
     edited_clinics_df = st.data_editor(df_clinics, num_rows="dynamic", use_container_width=True)
