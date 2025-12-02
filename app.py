@@ -86,16 +86,20 @@ def create_split_pdf(df_am, df_pm, start_str, end_str, clinics):
         pdf_obj.cell(0, 5, f"Week: {start_str} to {end_str}", ln=True, align='C')
         pdf_obj.ln(5)
 
-        # Pivot Data
-        pivot = data_df.pivot(index=['SortDate', 'Day'], columns='Clinic', values='Doctor')
+        # FIX: Use pivot_table with aggregation to handle multiple doctors in Reserve/Sci Day
+        # Using comma separator for PDF to keep it on one line if possible
+        pivot = data_df.pivot_table(
+            index=['SortDate', 'Day'], 
+            columns='Clinic', 
+            values='Doctor', 
+            aggfunc=lambda x: ', '.join(x)
+        )
         
         # Determine Columns
         cols = [str(c) for c in clinics]
-        # Add Sci Day columns if they exist in data
         sci_cols = [c for c in pivot.columns if "Sci" in c]
         other_cols = [c for c in ["Floor/Reserve", "VACATION"] if c in pivot.columns]
         
-        # Final Column Order: Clinics -> Sci -> Reserve -> Vacation
         final_cols = [c for c in cols if c in pivot.columns] + sci_cols + other_cols
         pivot = pivot[final_cols].fillna("-")
         
@@ -104,13 +108,12 @@ def create_split_pdf(df_am, df_pm, start_str, end_str, clinics):
         w_clinic = 35
         
         # Header
-        pdf_obj.set_fill_color(*color_header) # Unpack color tuple
+        pdf_obj.set_fill_color(*color_header) 
         pdf_obj.set_text_color(255, 255, 255)
         pdf_obj.set_font("Arial", 'B', 9)
         
         pdf_obj.cell(w_day, 10, "Date", 1, 0, 'C', 1)
         for col in final_cols:
-            # Adjust width for long Sci headers
             curr_w = 40 if "Sci" in col else w_clinic
             pdf_obj.cell(curr_w, 10, col, 1, 0, 'C', 1)
         pdf_obj.ln()
@@ -138,15 +141,13 @@ def create_split_pdf(df_am, df_pm, start_str, end_str, clinics):
                     pdf_obj.cell(curr_w, cell_height, text, 1, 0, 'C')
                     pdf_obj.set_font("Arial", '', 8)
                 else:
+                    # Truncate text if too long for PDF cell
+                    if len(text) > 25: text = text[:23] + ".."
                     pdf_obj.cell(curr_w, cell_height, text, 1, 0, 'C')
             pdf_obj.ln()
 
-    # --- DRAW AM TABLE ---
-    # Dark Blue Header for Morning
+    # --- DRAW TABLES ---
     draw_table(pdf, df_am, "☀️ Morning Shift Schedule", (52, 73, 94))
-    
-    # --- DRAW PM TABLE ---
-    # Dark Grey/Purple Header for Night
     draw_table(pdf, df_pm, "🌙 Evening Shift Schedule", (80, 40, 90))
 
     output_pdf = "Dental_Schedule_Split.pdf"
@@ -178,9 +179,8 @@ if uploaded_file:
         st.error("Error reading Excel.")
         st.stop()
 else:
-    # PRE-LOADED DATA FROM YOUR IMAGE
+    # PRE-LOADED DATA 
     preloaded_doctors = [
-        # RESIDENTS (Target 5, Default Scientific Day = Both)
         {"Name": "Dr. Amjad",       "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both"},
         {"Name": "Dr. Ziad",        "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both"},
         {"Name": "Dr. Sara",        "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both"},
@@ -189,23 +189,18 @@ else:
         {"Name": "Dr. Tariq",       "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both"},
         {"Name": "Dr. Faisel",      "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both"},
         {"Name": "Dr. Roqaya",      "Title": "Res", "Shift_Pref": "Both", "Sup": False, "Sun_Session": "Both"},
-        
-        # CONSULTANTS (Target 2, Supervisor)
         {"Name": "Dr. M Atef",      "Title": "Cons", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
         {"Name": "Dr. M Shady",     "Title": "Cons", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
         {"Name": "Dr. M Sandokji",  "Title": "Cons", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
         {"Name": "Dr. Nesam",       "Title": "Cons", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
-        
-        # SPECIALISTS (Target 5, Mix of Sup/Non-Sup)
-        {"Name": "Dr. Moatez",          "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
-        {"Name": "Dr. Abeer",           "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
-        {"Name": "Dr. Ahmed Elmahlawy", "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
-        {"Name": "Dr. Hanin",           "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
-        {"Name": "Dr. Asayel",          "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
-        {"Name": "Dr. Hind",            "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
-        {"Name": "Dr. Bassam",          "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
+        {"Name": "Dr. Moatez",      "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
+        {"Name": "Dr. Abeer",       "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
+        {"Name": "Dr. Ahmed E.",    "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
+        {"Name": "Dr. Hanin",       "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
+        {"Name": "Dr. Asayel",      "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
+        {"Name": "Dr. Hind",        "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
+        {"Name": "Dr. Bassam",      "Title": "Spec", "Shift_Pref": "Both", "Sup": True, "Sun_Session": "None"},
     ]
-    # Normalize keys for the app
     for d in preloaded_doctors:
         d["Supervisor"] = d.pop("Sup") 
         d["Vacation_Start"] = None
@@ -285,16 +280,11 @@ with tab3:
                 
                 assigned_count = 0
                 for doc in available:
-                    # SCIENTIFIC DAY LOGIC
                     sun_pref = doc.get("Sun_Session", "None")
                     is_res = "Res" in str(doc.get("Title", ""))
-                    
-                    # Force Residents to Both if default None, otherwise respect user choice
-                    if is_res and (sun_pref == "None" or pd.isna(sun_pref)):
-                        sun_pref = "Both"
+                    if is_res and (sun_pref == "None" or pd.isna(sun_pref)): sun_pref = "Both"
                     
                     if shift_label == "AM" and day_name == "Sunday" and sun_pref != "None":
-                        # Display specific session
                         loc = f"Sci: {sun_pref}"
                     else:
                         if assigned_count < len(clinic_list):
@@ -311,10 +301,8 @@ with tab3:
             process_shift(day_team, "AM")
             process_shift(night_team, "PM")
 
-        # 4. DISPLAY RESULTS (SPLIT)
+        # 4. DISPLAY RESULTS
         final_df = pd.DataFrame(schedule_rows)
-        
-        # Split into Day and Night DFs
         df_am = final_df[final_df['Shift'] == 'AM']
         df_pm = final_df[final_df['Shift'] == 'PM']
         
@@ -322,17 +310,17 @@ with tab3:
         
         res_tab1, res_tab2 = st.tabs(["☀️ Morning Roster", "🌙 Evening Roster"])
         
+        # FIX: Using pivot_table with aggfunc to separate multiple doctors in one cell with newlines
         with res_tab1:
             st.subheader("Morning Shift (8 AM - 4 PM)")
-            pivot_am = df_am.pivot(index=['SortDate', 'Day'], columns='Clinic', values='Doctor')
+            pivot_am = df_am.pivot_table(index=['SortDate', 'Day'], columns='Clinic', values='Doctor', aggfunc=lambda x: '\n'.join(x))
             st.dataframe(pivot_am, use_container_width=True)
             
         with res_tab2:
             st.subheader("Evening Shift (4 PM - 12 AM)")
-            pivot_pm = df_pm.pivot(index=['SortDate', 'Day'], columns='Clinic', values='Doctor')
+            pivot_pm = df_pm.pivot_table(index=['SortDate', 'Day'], columns='Clinic', values='Doctor', aggfunc=lambda x: '\n'.join(x))
             st.dataframe(pivot_pm, use_container_width=True)
         
-        # 5. PDF
         pdf_file = create_split_pdf(df_am, df_pm, start_d.strftime("%Y-%m-%d"), end_d.strftime("%Y-%m-%d"), clinic_list)
         with open(pdf_file, "rb") as f:
             st.download_button("📥 Download Official PDF (Split Tables)", f, "Dental_Schedule.pdf", "application/pdf")
